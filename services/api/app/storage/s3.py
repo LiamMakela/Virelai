@@ -97,3 +97,26 @@ def get_object_size(
     )
 
     return response["ContentLength"]
+
+def generate_media_download_url(
+    object_key: str,
+    expires_in: int = 3600,
+) -> str:
+    return _public_signing_client.generate_presigned_url(
+        ClientMethod="get_object",
+        Params={
+            "Bucket": "virelai-media",
+            "Key": object_key,
+        },
+        ExpiresIn=expires_in,
+        HttpMethod="GET",
+    )
+
+def media_public_url(
+    object_key: str,
+) -> str:
+    return (
+        f"{settings.s3_public_endpoint_url}/"
+        f"{settings.s3_bucket_media}/"
+        f"{object_key}"
+    )

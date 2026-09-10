@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
 
     s3_bucket_originals: str = "virelai-originals"
+    
+    s3_bucket_media: str = "virelai-media"
 
     kafka_bootstrap_servers: str = "kafka:19092"
     kafka_topic_video_uploaded: str = "video.uploaded.v1"
