@@ -13,9 +13,13 @@ services:
       REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       S3_ENDPOINT_URL: http://minio:9000
+      S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+
       S3_ACCESS_KEY: virelai
       S3_SECRET_KEY: virelai-dev-password
       S3_REGION: us-east-1
+
+      S3_BUCKET_ORIGINALS: virelai-originals
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,6 +137,57 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: virelai-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 virelai virelai-dev-password &&
+      mc mb --ignore-existing local/virelai-originals &&
+      mc mb --ignore-existing local/virelai-media &&
+      exit 0;
+      "
+
+
+  transcoder:
+    build:
+      context: ./services/transcoder
+      dockerfile: Dockerfile
+
+    container_name: virelai-transcoder
+
+    environment:
+      DATABASE_URL: postgresql://virelai:virelai@postgres:5432/virelai
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_TOPIC_VIDEO_UPLOADED: video.uploaded.v1
+
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: virelai
+      S3_SECRET_KEY: virelai-dev-password
+      S3_REGION: us-east-1
+
+      S3_BUCKET_ORIGINALS: virelai-originals
+      S3_BUCKET_MEDIA: virelai-media
+
+    volumes:
+      - ./services/transcoder/app:/app/app
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      kafka:
+        condition: service_healthy
+
+      minio:
+        condition: service_healthy
+
     restart: unless-stopped
 
 

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.routers.videos import router as videos_router
+from app.routers.uploads import router as uploads_router
 
 
 app = FastAPI(
@@ -13,6 +14,7 @@ app = FastAPI(
 
 
 app.include_router(videos_router)
+app.include_router(uploads_router)
 
 
 @app.get("/health")
