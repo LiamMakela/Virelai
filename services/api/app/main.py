@@ -3,12 +3,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.routers.videos import router as videos_router
 
 
 app = FastAPI(
     title="Virelai API",
     version="0.1.0",
 )
+
+
+app.include_router(videos_router)
 
 
 @app.get("/health")
