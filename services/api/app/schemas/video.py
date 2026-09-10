@@ -19,18 +19,24 @@ class VideoCreate(BaseModel):
 
 
 class VideoRead(BaseModel):
-    model_config = ConfigDict(
-        from_attributes=True,
-    )
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     owner_id: uuid.UUID
 
     title: str
-    description: str | None
+    description: str | None = None
 
     status: VideoStatus
 
+    duration_ms: int | None = None
+    source_width: int | None = None
+    source_height: int | None = None
+    source_codec: str | None = None
+
+    thumbnail_key: str | None = None
+    master_playlist_key: str | None = None
+
     created_at: datetime
     updated_at: datetime
-    published_at: datetime | None
+    published_at: datetime | None = None

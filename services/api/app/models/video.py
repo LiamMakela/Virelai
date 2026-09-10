@@ -3,18 +3,26 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     DateTime,
     Enum,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     func,
 )
+
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.rendition import Rendition
 
 
 class VideoStatus(enum.Enum):
@@ -87,6 +95,11 @@ class Video(Base):
         back_populates="videos",
     )
 
+    renditions: Mapped[list["Rendition"]] = relationship(
+        back_populates="video",
+        cascade="all, delete-orphan",
+    )
+
     __table_args__ = (
         Index(
             "ix_videos_owner_created_at",
@@ -98,6 +111,36 @@ class Video(Base):
             "status",
             "published_at",
         ),
+    )
+
+    duration_ms: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+
+    source_width: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    source_height: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    source_codec: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    thumbnail_key: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+    )
+
+    master_playlist_key: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
     )
 
 

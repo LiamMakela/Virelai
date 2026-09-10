@@ -51,6 +51,27 @@ S3_BUCKET_MEDIA = os.environ.get(
     "virelai-media",
 )
 
+RENDITION_LADDER = [
+    {
+        "name": "360p",
+        "height": 360,
+        "video_bitrate_kbps": 800,
+        "audio_bitrate_kbps": 96,
+    },
+    {
+        "name": "720p",
+        "height": 720,
+        "video_bitrate_kbps": 2800,
+        "audio_bitrate_kbps": 128,
+    },
+    {
+        "name": "1080p",
+        "height": 1080,
+        "video_bitrate_kbps": 5000,
+        "audio_bitrate_kbps": 128,
+    },
+]
+
 
 s3 = boto3.client(
     "s3",
@@ -83,10 +104,11 @@ def inspect_video(
         "ffprobe",
         "-v",
         "error",
-        "-select_streams",
-        "v:0",
         "-show_entries",
-        "stream=width,height,codec_name,avg_frame_rate",
+        (
+            "stream=index,codec_type,width,height,"
+            "codec_name,avg_frame_rate"
+        ),
         "-show_entries",
         "format=duration",
         "-of",
@@ -103,26 +125,47 @@ def inspect_video(
 
     data = json.loads(result.stdout)
 
-    if not data.get("streams"):
+    video_stream = next(
+        (
+            stream
+            for stream in data.get("streams", [])
+            if stream.get("codec_type") == "video"
+        ),
+        None,
+    )
+
+    if video_stream is None:
         raise RuntimeError(
             "Uploaded file does not contain a video stream"
         )
 
-    stream = data["streams"][0]
+    audio_stream = next(
+        (
+            stream
+            for stream in data.get("streams", [])
+            if stream.get("codec_type") == "audio"
+        ),
+        None,
+    )
 
     return {
-        "width": int(stream["width"]),
-        "height": int(stream["height"]),
-        "codec": stream.get("codec_name"),
-        "frame_rate": stream.get(
+        "width": int(video_stream["width"]),
+        "height": int(video_stream["height"]),
+        "codec": video_stream.get("codec_name"),
+        "frame_rate": video_stream.get(
             "avg_frame_rate",
             "30/1",
         ),
         "duration_seconds": float(
             data["format"]["duration"]
         ),
+        "has_audio": audio_stream is not None,
+        "audio_codec": (
+            audio_stream.get("codec_name")
+            if audio_stream
+            else None
+        ),
     }
-
 
 def parse_frame_rate(value: str) -> float:
     try:
@@ -179,21 +222,11 @@ def create_hls(
     input_path: Path,
     output_directory: Path,
     metadata: dict,
+    renditions: list[dict],
 ) -> None:
     output_directory.mkdir(
         parents=True,
         exist_ok=True,
-    )
-
-    frame_rate = parse_frame_rate(
-        metadata["frame_rate"]
-    )
-
-    # Target a keyframe about every 4 seconds,
-    # matching our HLS segment duration.
-    gop_size = max(
-        1,
-        round(frame_rate * 4),
     )
 
     command = [
@@ -201,54 +234,142 @@ def create_hls(
         "-y",
         "-i",
         str(input_path),
-
-        "-map",
-        "0:v:0",
-
-        # Audio is optional.
-        "-map",
-        "0:a:0?",
-
-        "-c:v",
-        "libx264",
-
-        "-preset",
-        "veryfast",
-
-        "-crf",
-        "23",
-
-        "-pix_fmt",
-        "yuv420p",
-
-        "-flags",
-        "+cgop",
-
-        "-g",
-        str(gop_size),
-
-        "-sc_threshold",
-        "0",
     ]
 
-    # For this first version, cap output at 720p
-    # but never upscale smaller videos.
-    if metadata["height"] > 720:
+    #
+    # Map the source once for every output rendition.
+    #
+    # Output stream numbering becomes:
+    #
+    # v:0, a:0
+    # v:1, a:1
+    # v:2, a:2
+    #
+    for _ in renditions:
         command.extend(
             [
-                "-vf",
-                "scale=-2:720",
+                "-map",
+                "0:v:0",
             ]
         )
 
+        if metadata["has_audio"]:
+            command.extend(
+                [
+                    "-map",
+                    "0:a:0",
+                ]
+            )
+
     command.extend(
         [
-            "-c:a",
-            "aac",
+            "-c:v",
+            "libx264",
 
-            "-b:a",
-            "128k",
+            "-preset",
+            "veryfast",
 
+            "-pix_fmt",
+            "yuv420p",
+
+            "-flags",
+            "+cgop",
+
+            "-sc_threshold",
+            "0",
+
+            # Force aligned keyframes every ~4 seconds.
+            "-force_key_frames",
+            "expr:gte(t,n_forced*4)",
+        ]
+    )
+
+    if metadata["has_audio"]:
+        command.extend(
+            [
+                "-c:a",
+                "aac",
+            ]
+        )
+
+    #
+    # Configure each video output separately.
+    #
+    for index, rendition in enumerate(
+        renditions
+    ):
+        bitrate = rendition[
+            "video_bitrate_kbps"
+        ]
+
+        maxrate = int(
+            bitrate * 1.07
+        )
+
+        bufsize = int(
+            bitrate * 1.5
+        )
+
+        command.extend(
+            [
+                f"-filter:v:{index}",
+                (
+                    f"scale=-2:"
+                    f"{rendition['height']}"
+                ),
+
+                f"-b:v:{index}",
+                f"{bitrate}k",
+
+                f"-maxrate:v:{index}",
+                f"{maxrate}k",
+
+                f"-bufsize:v:{index}",
+                f"{bufsize}k",
+            ]
+        )
+
+        if metadata["has_audio"]:
+            command.extend(
+                [
+                    f"-b:a:{index}",
+                    (
+                        f"{rendition['audio_bitrate_kbps']}k"
+                    ),
+                ]
+            )
+
+    #
+    # Tell FFmpeg which output streams belong to
+    # each HLS variant.
+    #
+    variant_entries = []
+
+    for index, rendition in enumerate(
+        renditions
+    ):
+        if metadata["has_audio"]:
+            entry = (
+                f"v:{index},"
+                f"a:{index},"
+                f"name:{rendition['name']}"
+            )
+        else:
+            entry = (
+                f"v:{index},"
+                f"name:{rendition['name']}"
+            )
+
+        variant_entries.append(
+            entry
+        )
+
+    variant_map = " ".join(
+        variant_entries
+    )
+
+    command.extend(
+        [
             "-f",
             "hls",
 
@@ -258,17 +379,37 @@ def create_hls(
             "-hls_playlist_type",
             "vod",
 
+            "-hls_flags",
+            "independent_segments",
+
+            "-var_stream_map",
+            variant_map,
+
+            "-master_pl_name",
+            "master.m3u8",
+
             "-hls_segment_filename",
             str(
                 output_directory
-                / "segment_%03d.ts"
+                / "%v"
+                / "segment_%05d.ts"
             ),
 
             str(
                 output_directory
+                / "%v"
                 / "playlist.m3u8"
             ),
         ]
+    )
+
+    logger.info(
+        "running adaptive HLS transcode "
+        "renditions=%s",
+        [
+            rendition["name"]
+            for rendition in renditions
+        ],
     )
 
     subprocess.run(
@@ -312,13 +453,19 @@ def upload_generated_media(
     )
 
     for file_path in sorted(
-        hls_directory.iterdir()
+        hls_directory.rglob("*")
     ):
         if not file_path.is_file():
             continue
 
+        relative_path = (
+            file_path
+            .relative_to(hls_directory)
+            .as_posix()
+        )
+
         object_key = (
-            f"{hls_prefix}/{file_path.name}"
+            f"{hls_prefix}/{relative_path}"
         )
 
         logger.info(
@@ -353,6 +500,159 @@ def upload_generated_media(
         },
     )
 
+def calculate_width(
+    source_width: int,
+    source_height: int,
+    target_height: int,
+) -> int:
+    width = round(
+        source_width
+        * target_height
+        / source_height
+    )
+
+    # H.264/YUV420 generally wants even dimensions.
+    if width % 2 != 0:
+        width += 1
+
+    return width
+
+def save_media_metadata(
+    video_id: uuid.UUID,
+    metadata: dict,
+    renditions: list[dict],
+) -> None:
+    thumbnail_key = (
+        f"videos/{video_id}/thumbnail.jpg"
+    )
+
+    master_playlist_key = (
+        f"videos/{video_id}/hls/master.m3u8"
+    )
+
+    with psycopg.connect(
+        DATABASE_URL
+    ) as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                UPDATE videos
+                SET
+                    duration_ms = %s,
+                    source_width = %s,
+                    source_height = %s,
+                    source_codec = %s,
+                    thumbnail_key = %s,
+                    master_playlist_key = %s,
+                    status = 'ready',
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (
+                    round(
+                        metadata[
+                            "duration_seconds"
+                        ]
+                        * 1000
+                    ),
+                    metadata["width"],
+                    metadata["height"],
+                    metadata["codec"],
+                    thumbnail_key,
+                    master_playlist_key,
+                    video_id,
+                ),
+            )
+
+            #
+            # Makes processing idempotent if the same
+            # video must be safely regenerated.
+            #
+            cursor.execute(
+                """
+                DELETE FROM renditions
+                WHERE video_id = %s
+                """,
+                (video_id,),
+            )
+
+            for rendition in renditions:
+                width = calculate_width(
+                    source_width=metadata[
+                        "width"
+                    ],
+                    source_height=metadata[
+                        "height"
+                    ],
+                    target_height=rendition[
+                        "height"
+                    ],
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO renditions (
+                        id,
+                        video_id,
+                        name,
+                        width,
+                        height,
+                        video_bitrate_kbps,
+                        audio_bitrate_kbps,
+                        video_codec,
+                        audio_codec,
+                        playlist_key
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
+                    """,
+                    (
+                        uuid.uuid4(),
+                        video_id,
+                        rendition["name"],
+                        width,
+                        rendition["height"],
+                        rendition[
+                            "video_bitrate_kbps"
+                        ],
+                        (
+                            rendition[
+                                "audio_bitrate_kbps"
+                            ]
+                            if metadata[
+                                "has_audio"
+                            ]
+                            else None
+                        ),
+                        "h264",
+                        (
+                            "aac"
+                            if metadata[
+                                "has_audio"
+                            ]
+                            else None
+                        ),
+                        (
+                            f"videos/{video_id}/"
+                            f"hls/"
+                            f"{rendition['name']}/"
+                            "playlist.m3u8"
+                        ),
+                    ),
+                )
+
+        connection.commit()
 
 def get_video_status(
     video_id: uuid.UUID,
@@ -517,6 +817,10 @@ def process_video(
                 source_path
             )
 
+            renditions = select_renditions(
+                metadata["height"]
+            )
+
             logger.info(
                 "video=%s "
                 "resolution=%sx%s "
@@ -543,6 +847,7 @@ def process_video(
                 source_path,
                 hls_directory,
                 metadata,
+                renditions,
             )
 
             upload_generated_media(
@@ -551,8 +856,10 @@ def process_video(
                 thumbnail_path,
             )
 
-        mark_ready(
-            video_id
+        save_media_metadata(
+            video_id,
+            metadata,
+            renditions,
         )
 
         logger.info(
@@ -566,6 +873,29 @@ def process_video(
         )
 
         raise
+
+def select_renditions(
+    source_height: int,
+) -> list[dict]:
+    selected = [
+        rendition
+        for rendition in RENDITION_LADDER
+        if rendition["height"] <= source_height
+    ]
+
+    if selected:
+        return selected
+
+    # Handle unusually small source videos without
+    # upscaling them to 360p.
+    return [
+        {
+            "name": f"{source_height}p",
+            "height": source_height,
+            "video_bitrate_kbps": 500,
+            "audio_bitrate_kbps": 96,
+        }
+    ]
 
 
 def main() -> None:
