@@ -6,6 +6,7 @@ from app.models.video import Video, VideoStatus
 from app.schemas.playback import PlaybackResponse
 from app.storage.s3 import generate_media_download_url
 from app.storage.s3 import media_public_url
+from app.models.playback import PlaybackSession
 
 
 class VideoNotFoundError(Exception):
@@ -51,3 +52,38 @@ async def get_playback(
         video_id=video.id,
         playback_url=playback_url,
     )
+
+
+async def create_playback_session(
+    db: AsyncSession,
+    video_id: uuid.UUID,
+) -> PlaybackSession:
+    video = await db.get(
+        Video,
+        video_id,
+    )
+
+    if video is None:
+        raise VideoNotFoundError(
+            f"Video {video_id} does not exist"
+        )
+
+    if video.status not in {
+        VideoStatus.READY,
+        VideoStatus.PUBLISHED,
+    }:
+        raise VideoNotReadyError(
+            f"Video is not playable in state {video.status.value}"
+        )
+
+    session = PlaybackSession(
+        video_id=video.id,
+        user_id=None,
+    )
+
+    db.add(session)
+
+    await db.commit()
+    await db.refresh(session)
+
+    return session

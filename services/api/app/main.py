@@ -7,6 +7,7 @@ from app.db.session import get_db
 from app.routers.videos import router as videos_router
 from app.routers.uploads import router as uploads_router
 from app.routers.playback import router as playback_router
+from app.routers.analytics import router as analytics_router
 
 app = FastAPI(
     title="Virelai API",
@@ -26,6 +27,7 @@ app.add_middleware(
 app.include_router(videos_router)
 app.include_router(uploads_router)
 app.include_router(playback_router)
+app.include_router(analytics_router)
 
 
 @app.get("/health")
