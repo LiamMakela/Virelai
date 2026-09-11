@@ -3,3 +3,8 @@ uvicorn[standard]
 confluent-kafka==2.15.0
 pydantic>=2.0
 prometheus-client
+
+opentelemetry-distro
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-confluent-kafka

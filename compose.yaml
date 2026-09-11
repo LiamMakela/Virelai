@@ -1,3 +1,12 @@
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+
+
+
 services:
   api:
     build:
@@ -9,6 +18,10 @@ services:
     volumes:
       - ./services/api:/app
     environment:
+      <<: *otel-env
+
+      OTEL_SERVICE_NAME: virelai-api
+
       DATABASE_URL: postgresql+psycopg://virelai:virelai@postgres:5432/virelai
       REDIS_URL: redis://redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
@@ -163,6 +176,10 @@ services:
     container_name: virelai-transcoder
 
     environment:
+      <<: *otel-env
+
+      OTEL_SERVICE_NAME: virelai-transcoder
+
       DATABASE_URL: postgresql://virelai:virelai@postgres:5432/virelai
 
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
@@ -202,6 +219,11 @@ services:
       - "8001:8001"
 
     environment:
+
+      <<: *otel-env
+
+      OTEL_SERVICE_NAME: virelai-ingest
+
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       KAFKA_TOPIC_PLAYBACK_EVENTS: playback.events.v1
 
@@ -222,6 +244,10 @@ services:
     container_name: virelai-analytics-worker
 
     environment:
+      <<: *otel-env
+
+      OTEL_SERVICE_NAME: virelai-analytics-worker
+
       DATABASE_URL: postgresql://virelai:virelai@postgres:5432/virelai
 
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
@@ -248,6 +274,10 @@ services:
     container_name: virelai-realtime-worker
 
     environment:
+      <<: *otel-env
+
+      OTEL_SERVICE_NAME: virelai-realtime-worker
+
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       KAFKA_TOPIC_PLAYBACK_EVENTS: playback.events.v1
       REDIS_URL: redis://redis:6379/0
@@ -309,6 +339,62 @@ services:
 
     restart: unless-stopped
 
+  tempo:
+    image: grafana/tempo:3.0.0
+
+    container_name: virelai-tempo
+
+    command:
+      - "-target=all"
+      - "-config.file=/etc/tempo.yaml"
+
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+
+    ports:
+      - "3200:3200"
+
+    restart: unless-stopped
+
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+
+    container_name: virelai-otel-collector
+
+    command:
+      - "--config=/etc/otelcol-contrib/config.yaml"
+
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+    depends_on:
+      - tempo
+
+    restart: unless-stopped
+
+  k6:
+    image: grafana/k6:1.8.1
+
+    profiles:
+      - tools
+
+    environment:
+      API_BASE_URL: http://api:8000
+      INGEST_BASE_URL: http://ingest:8001
+
+    volumes:
+      - ./benchmarks/k6:/scripts:ro
+      - ./benchmarks/results:/results
+
+    depends_on:
+      - api
+      - ingest
 
 volumes:
   postgres_data:
@@ -316,3 +402,4 @@ volumes:
   minio_data:
   prometheus_data:
   grafana_data:
+  tempo_data:

@@ -8,3 +8,10 @@ boto3
 confluent-kafka==2.15.0
 redis==8.1.0
 prometheus-client
+
+opentelemetry-distro
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-confluent-kafka
+opentelemetry-instrumentation-sqlalchemy
+opentelemetry-instrumentation-psycopg

@@ -1,3 +1,8 @@
 confluent-kafka==2.15.0
 pydantic>=2.0
 redis==8.1.0
+
+opentelemetry-distro
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-confluent-kafka
+opentelemetry-instrumentation-psycopg
