@@ -240,8 +240,7 @@ services:
     build:
       context: ./services/analytics-worker
       dockerfile: Dockerfile
-
-    container_name: virelai-analytics-worker
+    
 
     environment:
       <<: *otel-env
@@ -395,6 +394,36 @@ services:
     depends_on:
       - api
       - ingest
+
+  ingest-bench:
+    build:
+      context: ./services/ingest
+      dockerfile: Dockerfile
+
+    environment:
+      <<: *otel-env
+
+      OTEL_SERVICE_NAME: virelai-ingest-bench
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_TOPIC_PLAYBACK_EVENTS: playback.events.v1
+
+    command:
+      - opentelemetry-instrument
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+      - --workers
+      - "4"
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -5,8 +5,14 @@ import time
 import uuid
 from datetime import datetime
 
-from confluent_kafka import Consumer
-from pydantic import BaseModel, ValidationError
+from confluent_kafka import (
+    Consumer,
+    TopicPartition,
+)
+from pydantic import (
+    BaseModel,
+    ValidationError,
+)
 from redis import Redis
 
 
@@ -47,8 +53,15 @@ redis_client = Redis.from_url(
 
 
 ACTIVE_SESSION_TTL_SECONDS = 30
+
 EVENT_RETENTION_SECONDS = 120
+
 LIVE_STREAM_MAX_LENGTH = 500
+
+
+BATCH_SIZE = 500
+
+BATCH_TIMEOUT_SECONDS = 1.0
 
 
 class PlaybackEvent(BaseModel):
@@ -63,6 +76,7 @@ class PlaybackEvent(BaseModel):
     event_type: str
 
     playback_position_ms: int | None = None
+
     buffer_duration_ms: int | None = None
 
     bitrate_kbps: int | None = None
@@ -82,83 +96,95 @@ def event_stream_fields(
     event: PlaybackEvent,
 ) -> dict[str, str]:
     fields = {
-        "event_id": str(event.event_id),
-        "session_id": str(event.session_id),
-        "video_id": str(event.video_id),
-        "sequence_number": str(
-            event.sequence_number
-        ),
-        "event_time": (
-            event.event_time.isoformat()
-        ),
-        "event_type": event.event_type,
+        "event_id":
+            str(event.event_id),
+
+        "session_id":
+            str(event.session_id),
+
+        "video_id":
+            str(event.video_id),
+
+        "sequence_number":
+            str(event.sequence_number),
+
+        "event_time":
+            event.event_time.isoformat(),
+
+        "event_type":
+            event.event_type,
     }
 
-    if event.playback_position_ms is not None:
-        fields["playback_position_ms"] = str(
-            event.playback_position_ms
-        )
 
-    if event.buffer_duration_ms is not None:
-        fields["buffer_duration_ms"] = str(
-            event.buffer_duration_ms
-        )
+    optional_integer_fields = {
+        "playback_position_ms":
+            event.playback_position_ms,
 
-    if event.quality_height is not None:
-        fields["quality_height"] = str(
-            event.quality_height
-        )
+        "buffer_duration_ms":
+            event.buffer_duration_ms,
 
-    if event.bitrate_kbps is not None:
-        fields["bitrate_kbps"] = str(
-            event.bitrate_kbps
-        )
+        "quality_height":
+            event.quality_height,
+
+        "bitrate_kbps":
+            event.bitrate_kbps,
+
+        "startup_time_ms":
+            event.startup_time_ms,
+
+        "watch_delta_ms":
+            event.watch_delta_ms,
+
+        "seek_from_ms":
+            event.seek_from_ms,
+
+        "seek_to_ms":
+            event.seek_to_ms,
+    }
+
+
+    for (
+        field_name,
+        value,
+    ) in optional_integer_fields.items():
+
+        if value is not None:
+            fields[field_name] = (
+                str(value)
+            )
+
 
     if event.error_code is not None:
         fields["error_code"] = (
             event.error_code
         )
 
+
     if event.metadata is not None:
-        fields["metadata"] = json.dumps(
-            event.metadata
+        fields["metadata"] = (
+            json.dumps(
+                event.metadata
+            )
         )
 
-    if event.startup_time_ms is not None:
-        fields["startup_time_ms"] = str(
-            event.startup_time_ms
-        )
-
-    if event.watch_delta_ms is not None:
-        fields["watch_delta_ms"] = str(
-            event.watch_delta_ms
-        )
-
-    if event.seek_from_ms is not None:
-        fields["seek_from_ms"] = str(
-            event.seek_from_ms
-        )
-
-    if event.seek_to_ms is not None:
-        fields["seek_to_ms"] = str(
-            event.seek_to_ms
-        )
 
     return fields
 
 
-def process_event(
-    event: PlaybackEvent,
+def process_events(
+    events: list[PlaybackEvent],
 ) -> None:
-    event_id = str(event.event_id)
-    session_id = str(event.session_id)
-    video_id = str(event.video_id)
+    if not events:
+        return
 
-    event_timestamp = (
-        event.event_time.timestamp()
-    )
 
     now = time.time()
+
+    cutoff = (
+        now
+        - EVENT_RETENTION_SECONDS
+    )
+
 
     platform_events_key = (
         "realtime:events"
@@ -176,71 +202,70 @@ def process_event(
         "realtime:active_sessions"
     )
 
-    video_events_key = (
-        f"video:{video_id}:realtime:events"
-    )
 
-    video_buffers_key = (
-        f"video:{video_id}:realtime:buffers"
-    )
+    touched_video_ids: set[
+        str
+    ] = set()
 
-    video_errors_key = (
-        f"video:{video_id}:realtime:errors"
-    )
 
-    video_active_key = (
-        f"video:{video_id}:active_sessions"
-    )
-
+    #
+    # One Redis pipeline for the entire
+    # Kafka batch.
+    #
     pipe = redis_client.pipeline(
         transaction=False
     )
 
-    #
-    # Every event goes into a timestamp-scored
-    # sorted set.
-    #
-    # Using event_id as the member makes retries
-    # naturally idempotent for these counters.
-    #
-    pipe.zadd(
-        platform_events_key,
-        {
-            event_id: event_timestamp,
-        },
-    )
 
-    pipe.zadd(
-        video_events_key,
-        {
-            event_id: event_timestamp,
-        },
-    )
+    for event in events:
+        event_id = str(
+            event.event_id
+        )
 
-    #
-    # Trim old realtime events so Redis remains
-    # bounded.
-    #
-    cutoff = (
-        now
-        - EVENT_RETENTION_SECONDS
-    )
+        session_id = str(
+            event.session_id
+        )
 
-    pipe.zremrangebyscore(
-        platform_events_key,
-        "-inf",
-        cutoff,
-    )
+        video_id = str(
+            event.video_id
+        )
 
-    pipe.zremrangebyscore(
-        video_events_key,
-        "-inf",
-        cutoff,
-    )
+        touched_video_ids.add(
+            video_id
+        )
 
-    if event.event_type == "buffer_ended":
+
+        event_timestamp = (
+            event.event_time.timestamp()
+        )
+
+
+        video_events_key = (
+            f"video:{video_id}:"
+            "realtime:events"
+        )
+
+        video_buffers_key = (
+            f"video:{video_id}:"
+            "realtime:buffers"
+        )
+
+        video_errors_key = (
+            f"video:{video_id}:"
+            "realtime:errors"
+        )
+
+        video_active_key = (
+            f"video:{video_id}:"
+            "active_sessions"
+        )
+
+
+        #
+        # All realtime events.
+        #
         pipe.zadd(
-            platform_buffers_key,
+            platform_events_key,
             {
                 event_id:
                     event_timestamp,
@@ -248,106 +273,93 @@ def process_event(
         )
 
         pipe.zadd(
-            video_buffers_key,
+            video_events_key,
             {
                 event_id:
                     event_timestamp,
             },
         )
 
-        pipe.zremrangebyscore(
-            platform_buffers_key,
-            "-inf",
-            cutoff,
-        )
 
-        pipe.zremrangebyscore(
-            video_buffers_key,
-            "-inf",
-            cutoff,
-        )
+        #
+        # Buffering projection.
+        #
+        if (
+            event.event_type
+            == "buffer_ended"
+        ):
+            pipe.zadd(
+                platform_buffers_key,
+                {
+                    event_id:
+                        event_timestamp,
+                },
+            )
 
-    if event.event_type == "playback_error":
-        pipe.zadd(
-            platform_errors_key,
-            {
-                event_id:
-                    event_timestamp,
-            },
-        )
+            pipe.zadd(
+                video_buffers_key,
+                {
+                    event_id:
+                        event_timestamp,
+                },
+            )
 
-        pipe.zadd(
-            video_errors_key,
-            {
-                event_id:
-                    event_timestamp,
-            },
-        )
 
-        pipe.zremrangebyscore(
-            platform_errors_key,
-            "-inf",
-            cutoff,
-        )
+        #
+        # Error projection.
+        #
+        if (
+            event.event_type
+            == "playback_error"
+        ):
+            pipe.zadd(
+                platform_errors_key,
+                {
+                    event_id:
+                        event_timestamp,
+                },
+            )
 
-        pipe.zremrangebyscore(
-            video_errors_key,
-            "-inf",
-            cutoff,
-        )
+            pipe.zadd(
+                video_errors_key,
+                {
+                    event_id:
+                        event_timestamp,
+                },
+            )
 
-    #
-    # Active viewer projection.
-    #
-    # A score represents the most recent known
-    # activity timestamp for that session.
-    #
-    if event.event_type in {
-        "playback_started",
-        "resume",
-        "heartbeat",
-        "buffer_started",
-        "buffer_ended",
-    }:
-        pipe.zadd(
-            platform_active_key,
-            {
-                session_id:
-                    event_timestamp,
-            },
-        )
 
-        pipe.zadd(
-            video_active_key,
-            {
-                session_id:
-                    event_timestamp,
-            },
-        )
+        #
+        # Active-viewer projection.
+        #
+        if event.event_type in {
+            "playback_started",
+            "resume",
+            "heartbeat",
+            "buffer_started",
+            "buffer_ended",
+        }:
+            pipe.zadd(
+                platform_active_key,
+                {
+                    session_id:
+                        event_timestamp,
+                },
+            )
 
-    elif event.event_type in {
-        "pause",
-        "playback_ended",
-    }:
-        pipe.zrem(
-            platform_active_key,
-            session_id,
-        )
+            pipe.zadd(
+                video_active_key,
+                {
+                    session_id:
+                        event_timestamp,
+                },
+            )
 
-        pipe.zrem(
-            video_active_key,
-            session_id,
-        )
 
-    elif (
-        event.event_type
-        == "playback_error"
-    ):
-        metadata = (
-            event.metadata or {}
-        )
-
-        if metadata.get("fatal") is True:
+        elif event.event_type in {
+            "pause",
+            "playback_ended",
+        }:
             pipe.zrem(
                 platform_active_key,
                 session_id,
@@ -358,22 +370,172 @@ def process_event(
                 session_id,
             )
 
+
+        elif (
+            event.event_type
+            == "playback_error"
+        ):
+            metadata = (
+                event.metadata or {}
+            )
+
+            if (
+                metadata.get("fatal")
+                is True
+            ):
+                pipe.zrem(
+                    platform_active_key,
+                    session_id,
+                )
+
+                pipe.zrem(
+                    video_active_key,
+                    session_id,
+                )
+
+
+        #
+        # Rolling live event stream used by
+        # the SSE operations dashboard.
+        #
+        pipe.xadd(
+            "realtime:event_stream",
+
+            event_stream_fields(
+                event
+            ),
+
+            maxlen=(
+                LIVE_STREAM_MAX_LENGTH
+            ),
+
+            approximate=True,
+        )
+
+
     #
-    # Keep a small rolling Redis Stream for the
-    # eventual SSE operations dashboard.
+    # Trim platform-level structures ONCE
+    # per Kafka batch instead of once for
+    # every single event.
     #
-    pipe.xadd(
-        "realtime:event_stream",
-        event_stream_fields(event),
-        maxlen=LIVE_STREAM_MAX_LENGTH,
-        approximate=True,
+    pipe.zremrangebyscore(
+        platform_events_key,
+        "-inf",
+        cutoff,
     )
 
+    pipe.zremrangebyscore(
+        platform_buffers_key,
+        "-inf",
+        cutoff,
+    )
+
+    pipe.zremrangebyscore(
+        platform_errors_key,
+        "-inf",
+        cutoff,
+    )
+
+
+    #
+    # Trim each touched video's structures
+    # once per batch.
+    #
+    for video_id in touched_video_ids:
+
+        prefix = (
+            f"video:{video_id}"
+        )
+
+        pipe.zremrangebyscore(
+            f"{prefix}:realtime:events",
+            "-inf",
+            cutoff,
+        )
+
+        pipe.zremrangebyscore(
+            f"{prefix}:realtime:buffers",
+            "-inf",
+            cutoff,
+        )
+
+        pipe.zremrangebyscore(
+            f"{prefix}:realtime:errors",
+            "-inf",
+            cutoff,
+        )
+
+
+    #
+    # ONE Redis network round trip for
+    # the batch.
+    #
     pipe.execute()
+
+
+def offsets_for_messages(
+    messages,
+) -> list[TopicPartition]:
+    """
+    Commit the highest successfully processed
+    offset + 1 for every Kafka partition
+    represented in the batch.
+    """
+
+    offsets: dict[
+        tuple[str, int],
+        int,
+    ] = {}
+
+
+    for message in messages:
+
+        if message.error():
+            continue
+
+
+        key = (
+            message.topic(),
+            message.partition(),
+        )
+
+
+        next_offset = (
+            message.offset() + 1
+        )
+
+
+        previous = offsets.get(
+            key
+        )
+
+
+        if (
+            previous is None
+            or next_offset > previous
+        ):
+            offsets[key] = (
+                next_offset
+            )
+
+
+    return [
+        TopicPartition(
+            topic,
+            partition,
+            offset,
+        )
+        for (
+            topic,
+            partition,
+        ), offset
+        in offsets.items()
+    ]
 
 
 def main() -> None:
     redis_client.ping()
+
 
     consumer = Consumer(
         {
@@ -391,88 +553,189 @@ def main() -> None:
         }
     )
 
+
     consumer.subscribe(
         [
             KAFKA_TOPIC,
         ]
     )
 
+
     logger.info(
         "realtime worker started "
-        "topic=%s",
+        "topic=%s batch_size=%s",
         KAFKA_TOPIC,
+        BATCH_SIZE,
     )
+
 
     try:
         while True:
-            message = consumer.poll(
-                timeout=1.0
+
+            #
+            # Pull as many as 500 Kafka
+            # messages at once.
+            #
+            messages = (
+                consumer.consume(
+                    num_messages=(
+                        BATCH_SIZE
+                    ),
+                    timeout=(
+                        BATCH_TIMEOUT_SECONDS
+                    ),
+                )
             )
 
-            if message is None:
+
+            if not messages:
                 continue
 
-            if message.error():
-                logger.error(
-                    "Kafka error: %s",
-                    message.error(),
+
+            valid_events: list[
+                PlaybackEvent
+            ] = []
+
+
+            processable_messages = []
+
+
+            for message in messages:
+
+                if message.error():
+                    logger.error(
+                        "Kafka error: %s",
+                        message.error(),
+                    )
+
+                    continue
+
+
+                processable_messages.append(
+                    message
                 )
 
+
+                try:
+                    event = (
+                        PlaybackEvent
+                        .model_validate_json(
+                            message.value()
+                        )
+                    )
+
+                    valid_events.append(
+                        event
+                    )
+
+
+                except ValidationError:
+                    #
+                    # Bad payloads will not become
+                    # valid if retried forever.
+                    #
+                    logger.exception(
+                        "invalid playback event "
+                        "partition=%s "
+                        "offset=%s",
+                        message.partition(),
+                        message.offset(),
+                    )
+
+
+            if not processable_messages:
                 continue
 
+
             try:
-                event = (
-                    PlaybackEvent
-                    .model_validate_json(
-                        message.value()
+                #
+                # FIRST:
+                # update Redis for the entire batch.
+                #
+                process_events(
+                    valid_events
+                )
+
+
+                #
+                # THEN:
+                # advance Kafka.
+                #
+                offsets = (
+                    offsets_for_messages(
+                        processable_messages
                     )
                 )
 
-                process_event(
-                    event
+
+                committed = (
+                    consumer.commit(
+                        offsets=offsets,
+                        asynchronous=False,
+                    )
                 )
 
-                consumer.commit(
-                    message=message,
-                    asynchronous=False,
-                )
+
+                for partition in (
+                    committed or []
+                ):
+                    if (
+                        partition.error
+                        is not None
+                    ):
+                        raise RuntimeError(
+                            "Kafka offset commit "
+                            "failed for "
+                            f"{partition.topic}"
+                            f"[{partition.partition}]"
+                            ": "
+                            f"{partition.error}"
+                        )
+
 
                 logger.info(
-                    "updated realtime state "
-                    "session=%s seq=%s type=%s",
-                    event.session_id,
-                    event.sequence_number,
-                    event.event_type,
+                    "updated realtime batch "
+                    "received=%s "
+                    "valid=%s "
+                    "partitions=%s",
+                    len(
+                        processable_messages
+                    ),
+                    len(
+                        valid_events
+                    ),
+                    len(
+                        offsets
+                    ),
                 )
 
-            except ValidationError:
-                logger.exception(
-                    "invalid playback event"
-                )
-
-                # Poison events cannot become valid
-                # by retrying forever.
-                consumer.commit(
-                    message=message,
-                    asynchronous=False,
-                )
 
             except Exception:
                 logger.exception(
-                    "realtime update failed"
+                    "realtime batch failed; "
+                    "Kafka offsets were not "
+                    "committed"
                 )
 
                 #
-                # Do NOT commit.
+                # Let Docker restart the worker.
                 #
-                # Redis sorted-set updates are largely
-                # idempotent because event_id/session_id
-                # is the member, so this message can
-                # safely retry.
+                # Redis sorted-set updates are
+                # idempotent because event/session
+                # IDs are members.
                 #
+                # The rolling SSE stream may see a
+                # duplicate after an extremely
+                # unlucky crash/replay, which is
+                # acceptable for this ephemeral
+                # operations feed.
+                #
+                raise
+
 
     finally:
         consumer.close()
+
         redis_client.close()
 
 

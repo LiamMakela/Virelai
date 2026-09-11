@@ -1,32 +1,43 @@
-## Local Docker Baseline
+### Ingest horizontal scaling
 
-### API benchmark
-- Max virtual users: 50
-- Duration: 60s
-- Requests: 9,840
-- Throughput: 163.82 req/s
-- Error rate: 0%
+#### Single Uvicorn worker
 
-#### Playback endpoint
-- Median: 60.41 ms
-- p95: 256.64 ms
-- p99: 446.75 ms
-- Max: 1.18 s
+Stress ramp target: up to 8,000 telemetry events/s
 
-#### Analytics endpoint
-- Median: 75.92 ms
-- p95: 253.13 ms
-- p99: 450.21 ms
-- Max: 1.29 s
+- Accepted average: 3,222 events/s
+- HTTP error rate: 0%
+- Median latency: 233.50 ms
+- p95 latency: 553.39 ms
+- p99 latency: 18.26 s
+- Dropped iterations: 5,100
+- Maximum active VUs: 500
+- Result: saturated before reaching requested load
 
-### Telemetry ingestion
-- Max virtual users: 50
-- Duration: 60s
-- HTTP requests: 8,720
-- Events accepted: 87,190
-- Throughput: 1,451.07 events/s
-- Error rate: 0%
-- Median latency: 48.89 ms
-- p95: 139.35 ms
-- p99: 185.30 ms
-- Max: 285.73 ms
+#### Four Uvicorn workers
+
+Same stress workload:
+
+- Scheduled iterations completed: 24,748
+- Average accepted rate: 4,121 events/s
+- Peak requested rate: 8,000 events/s
+- HTTP error rate: 0%
+- Median latency: 4.62 ms
+- p95 latency: 165.50 ms
+- p99 latency: 226.09 ms
+- Maximum latency: 294.37 ms
+- Dropped iterations: 0
+- Maximum active VUs: 85
+- Result: completed full requested load without saturation
+
+### Sustained telemetry capacity
+
+#### 10,000 events/sec
+- Duration: 30 seconds
+- Events accepted: 300,010
+- Dropped iterations: 0
+- HTTP error rate: 0%
+- Median ingest latency: 57.55 ms
+- p95 ingest latency: 197.02 ms
+- p99 ingest latency: 269.70 ms
+- Maximum ingest latency: 397.29 ms
+- Result: PASS
