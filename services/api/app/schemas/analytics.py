@@ -41,3 +41,14 @@ class AnalyticsTimelinePoint(BaseModel):
     playback_starts: int
     buffering_events: int
     playback_errors: int
+
+class RealtimeMetrics(BaseModel):
+    scope: str
+
+    active_viewers: int
+
+    events_per_second_10s: float
+
+    buffer_events_last_60s: int
+
+    playback_errors_last_60s: int

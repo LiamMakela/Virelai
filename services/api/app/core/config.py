@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "kafka:19092"
     kafka_topic_video_uploaded: str = "video.uploaded.v1"
 
+    redis_url: str = "redis://redis:6379/0"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

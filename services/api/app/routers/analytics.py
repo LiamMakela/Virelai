@@ -15,6 +15,8 @@ from app.schemas.analytics import (
     VideoAnalyticsSummary,
 )
 from app.services import analytics as analytics_service
+from app.schemas.analytics import RealtimeMetrics
+
 
 
 router = APIRouter(
@@ -76,5 +78,45 @@ async def get_video_timeline(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+@router.get(
+    "/realtime",
+    response_model=RealtimeMetrics,
+)
+
+async def get_platform_realtime():
+    return (
+        await analytics_service
+        .get_platform_realtime_metrics()
+    )
+
+
+@router.get(
+    "/videos/{video_id}/realtime",
+    response_model=RealtimeMetrics,
+)
+async def get_video_realtime(
+    video_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return (
+            await analytics_service
+            .get_video_realtime_metrics(
+                db=db,
+                video_id=video_id,
+            )
+        )
+
+    except (
+        analytics_service
+        .VideoNotFoundError
+    ) as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
             detail=str(exc),
         ) from exc

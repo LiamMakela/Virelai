@@ -240,6 +240,30 @@ services:
 
     restart: unless-stopped
 
+  realtime-worker:
+    build:
+      context: ./services/realtime-worker
+      dockerfile: Dockerfile
+
+    container_name: virelai-realtime-worker
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_TOPIC_PLAYBACK_EVENTS: playback.events.v1
+      REDIS_URL: redis://redis:6379/0
+
+    volumes:
+      - ./services/realtime-worker/app:/app/app
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+    restart: unless-stopped
+
 
 volumes:
   postgres_data:

@@ -1,5 +1,8 @@
 import uuid
+import time
+from app.schemas.analytics import RealtimeMetrics
 
+from app.core.redis import redis_client
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +13,158 @@ from app.schemas.analytics import (
     QualityCount,
     VideoAnalyticsSummary,
 )
+
+ACTIVE_SESSION_TTL_SECONDS = 30
+
+
+async def _get_realtime_metrics(
+    *,
+    scope: str,
+    active_key: str,
+    events_key: str,
+    buffers_key: str,
+    errors_key: str,
+) -> RealtimeMetrics:
+    now = time.time()
+
+    active_cutoff = (
+        now
+        - ACTIVE_SESSION_TTL_SECONDS
+    )
+
+    async with redis_client.pipeline(
+        transaction=False
+    ) as pipe:
+
+        #
+        # Remove sessions that disappeared without
+        # ever sending pause/end.
+        #
+        pipe.zremrangebyscore(
+            active_key,
+            "-inf",
+            active_cutoff,
+        )
+
+        pipe.zcard(
+            active_key
+        )
+
+        pipe.zcount(
+            events_key,
+            now - 10,
+            "+inf",
+        )
+
+        pipe.zcount(
+            buffers_key,
+            now - 60,
+            "+inf",
+        )
+
+        pipe.zcount(
+            errors_key,
+            now - 60,
+            "+inf",
+        )
+
+        results = await pipe.execute()
+
+    active_viewers = int(
+        results[1]
+    )
+
+    events_last_10_seconds = int(
+        results[2]
+    )
+
+    buffer_events = int(
+        results[3]
+    )
+
+    playback_errors = int(
+        results[4]
+    )
+
+    return RealtimeMetrics(
+        scope=scope,
+
+        active_viewers=active_viewers,
+
+        events_per_second_10s=round(
+            events_last_10_seconds / 10,
+            2,
+        ),
+
+        buffer_events_last_60s=(
+            buffer_events
+        ),
+
+        playback_errors_last_60s=(
+            playback_errors
+        ),
+    )
+
+
+async def get_platform_realtime_metrics(
+) -> RealtimeMetrics:
+    return await _get_realtime_metrics(
+        scope="platform",
+
+        active_key=(
+            "realtime:active_sessions"
+        ),
+
+        events_key="realtime:events",
+
+        buffers_key=(
+            "realtime:buffers"
+        ),
+
+        errors_key=(
+            "realtime:errors"
+        ),
+    )
+
+
+async def get_video_realtime_metrics(
+    db: AsyncSession,
+    video_id: uuid.UUID,
+) -> RealtimeMetrics:
+    video = await db.get(
+        Video,
+        video_id,
+    )
+
+    if video is None:
+        raise VideoNotFoundError(
+            f"Video {video_id} does not exist"
+        )
+
+    prefix = (
+        f"video:{video_id}"
+    )
+
+    return await _get_realtime_metrics(
+        scope=f"video:{video_id}",
+
+        active_key=(
+            f"{prefix}:active_sessions"
+        ),
+
+        events_key=(
+            f"{prefix}:realtime:events"
+        ),
+
+        buffers_key=(
+            f"{prefix}:realtime:buffers"
+        ),
+
+        errors_key=(
+            f"{prefix}:realtime:errors"
+        ),
+    )
+
 
 
 class VideoNotFoundError(Exception):
