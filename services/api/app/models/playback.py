@@ -135,6 +135,26 @@ class PlaybackEvent(Base):
         nullable=True,
     )
 
+    startup_time_ms: Mapped[int | None] = mapped_column(
+    BigInteger,
+    nullable=True,
+    )
+
+    watch_delta_ms: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+
+    seek_from_ms: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+
+    seek_to_ms: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+
     __table_args__ = (
         UniqueConstraint(
             "session_id",

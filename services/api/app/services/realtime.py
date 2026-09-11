@@ -18,10 +18,19 @@ METRICS_INTERVAL_SECONDS = 5
 
 INTEGER_FIELDS = {
     "sequence_number",
+
     "playback_position_ms",
+
     "buffer_duration_ms",
+
     "quality_height",
     "bitrate_kbps",
+
+    "startup_time_ms",
+    "watch_delta_ms",
+
+    "seek_from_ms",
+    "seek_to_ms",
 }
 
 

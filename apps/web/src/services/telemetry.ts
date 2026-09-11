@@ -1,4 +1,5 @@
 export type PlaybackEventType =
+  | "play_requested"
   | "playback_started"
   | "pause"
   | "resume"
@@ -6,6 +7,7 @@ export type PlaybackEventType =
   | "buffer_ended"
   | "quality_changed"
   | "heartbeat"
+  | "seek"
   | "playback_ended"
   | "playback_error";
 
@@ -30,6 +32,13 @@ export type PlaybackEvent = {
   error_code?: string;
 
   metadata?: Record<string, unknown>;
+
+  startup_time_ms?: number;
+
+  watch_delta_ms?: number;
+
+  seek_from_ms?: number;
+  seek_to_ms?: number;  
 };
 
 type PlaybackEventData = Partial<
@@ -41,6 +50,10 @@ type PlaybackEventData = Partial<
     | "quality_height"
     | "error_code"
     | "metadata"
+    | "startup_time_ms"
+    | "watch_delta_ms"
+    | "seek_from_ms"
+    | "seek_to_ms"
   >
 >;
 

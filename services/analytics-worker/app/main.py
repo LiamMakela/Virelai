@@ -58,6 +58,11 @@ class PlaybackEvent(BaseModel):
     error_code: str | None = None
     metadata: dict | None = None
 
+    startup_time_ms: int | None = None
+    watch_delta_ms: int | None = None
+    seek_from_ms: int | None = None
+    seek_to_ms: int | None = None
+
 
 def persist_event(
     event: PlaybackEvent,
@@ -81,9 +86,14 @@ def persist_event(
                     bitrate_kbps,
                     quality_height,
                     error_code,
-                    event_metadata
+                    event_metadata,
+                    startup_time_ms,
+                    watch_delta_ms,
+                    seek_from_ms,
+                    seek_to_ms
                 )
                 VALUES (
+                    %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s
@@ -107,6 +117,10 @@ def persist_event(
                     event.quality_height,
                     event.error_code,
                     event.metadata,
+                    event.startup_time_ms,
+                    event.watch_delta_ms,
+                    event.seek_from_ms,
+                    event.seek_to_ms,
                 ),
             )
 

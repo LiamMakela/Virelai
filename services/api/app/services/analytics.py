@@ -1,20 +1,30 @@
-import uuid
 import time
-from app.schemas.analytics import RealtimeMetrics
+import uuid
 
-from app.core.redis import redis_client
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redis import redis_client
 from app.models.video import Video
 from app.schemas.analytics import (
     AnalyticsTimelinePoint,
     EventTypeCount,
     QualityCount,
+    RealtimeMetrics,
     VideoAnalyticsSummary,
 )
 
+
 ACTIVE_SESSION_TTL_SECONDS = 30
+
+
+class VideoNotFoundError(Exception):
+    pass
+
+
+# ---------------------------------------------------------
+# Realtime analytics
+# ---------------------------------------------------------
 
 
 async def _get_realtime_metrics(
@@ -115,7 +125,9 @@ async def get_platform_realtime_metrics(
             "realtime:active_sessions"
         ),
 
-        events_key="realtime:events",
+        events_key=(
+            "realtime:events"
+        ),
 
         buffers_key=(
             "realtime:buffers"
@@ -166,9 +178,9 @@ async def get_video_realtime_metrics(
     )
 
 
-
-class VideoNotFoundError(Exception):
-    pass
+# ---------------------------------------------------------
+# Historical video analytics
+# ---------------------------------------------------------
 
 
 async def get_video_analytics(
@@ -238,12 +250,15 @@ async def get_video_analytics(
                 ) AS active_sessions,
 
                 (
-                    SELECT COUNT(*) * 10
+                    SELECT COALESCE(
+                        SUM(watch_delta_ms),
+                        0
+                    )
                     FROM playback_events
                     WHERE
                         video_id = :video_id
-                        AND event_type = 'heartbeat'
-                ) AS observed_watch_seconds,
+                        AND watch_delta_ms IS NOT NULL
+                ) AS total_watch_ms,
 
                 (
                     SELECT COUNT(*)
@@ -262,6 +277,7 @@ async def get_video_analytics(
                     WHERE
                         video_id = :video_id
                         AND event_type = 'buffer_ended'
+                        AND buffer_duration_ms IS NOT NULL
                 ) AS total_buffer_ms,
 
                 (
@@ -289,6 +305,50 @@ async def get_video_analytics(
                 ) AS p95_buffer_ms,
 
                 (
+                    SELECT percentile_cont(0.50)
+                        WITHIN GROUP (
+                            ORDER BY startup_time_ms
+                        )
+                    FROM playback_events
+                    WHERE
+                        video_id = :video_id
+                        AND event_type = 'playback_started'
+                        AND startup_time_ms IS NOT NULL
+                ) AS p50_startup_ms,
+
+                (
+                    SELECT percentile_cont(0.95)
+                        WITHIN GROUP (
+                            ORDER BY startup_time_ms
+                        )
+                    FROM playback_events
+                    WHERE
+                        video_id = :video_id
+                        AND event_type = 'playback_started'
+                        AND startup_time_ms IS NOT NULL
+                ) AS p95_startup_ms,
+
+                (
+                    SELECT percentile_cont(0.99)
+                        WITHIN GROUP (
+                            ORDER BY startup_time_ms
+                        )
+                    FROM playback_events
+                    WHERE
+                        video_id = :video_id
+                        AND event_type = 'playback_started'
+                        AND startup_time_ms IS NOT NULL
+                ) AS p99_startup_ms,
+
+                (
+                    SELECT COUNT(*)
+                    FROM playback_events
+                    WHERE
+                        video_id = :video_id
+                        AND event_type = 'seek'
+                ) AS seek_events,
+
+                (
                     SELECT COUNT(*)
                     FROM playback_events
                     WHERE
@@ -304,7 +364,10 @@ async def get_video_analytics(
 
     row = summary_result.mappings().one()
 
-    views = int(row["views"])
+    views = int(
+        row["views"]
+    )
+
     completed_sessions = int(
         row["completed_sessions"]
     )
@@ -315,6 +378,35 @@ async def get_video_analytics(
         else 0.0
     )
 
+    total_watch_ms = int(
+        row["total_watch_ms"]
+    )
+
+    total_buffer_ms = int(
+        row["total_buffer_ms"]
+    )
+
+    #
+    # Rebuffer ratio:
+    #
+    # time spent buffering /
+    # (time spent playing + buffering)
+    #
+    experience_ms = (
+        total_watch_ms
+        + total_buffer_ms
+    )
+
+    rebuffer_ratio = (
+        total_buffer_ms
+        / experience_ms
+        if experience_ms > 0
+        else 0.0
+    )
+
+    #
+    # Count events grouped by type.
+    #
     event_result = await db.execute(
         text(
             """
@@ -334,12 +426,20 @@ async def get_video_analytics(
 
     events_by_type = [
         EventTypeCount(
-            event_type=item["event_type"],
-            count=item["count"],
+            event_type=item[
+                "event_type"
+            ],
+            count=int(
+                item["count"]
+            ),
         )
-        for item in event_result.mappings()
+        for item
+        in event_result.mappings()
     ]
 
+    #
+    # Count observed HLS quality switches.
+    #
     quality_result = await db.execute(
         text(
             """
@@ -362,18 +462,26 @@ async def get_video_analytics(
 
     quality_distribution = [
         QualityCount(
-            quality_height=item[
-                "quality_height"
-            ],
-            count=item["count"],
+            quality_height=int(
+                item[
+                    "quality_height"
+                ]
+            ),
+            count=int(
+                item["count"]
+            ),
         )
-        for item in quality_result.mappings()
+        for item
+        in quality_result.mappings()
     ]
 
     return VideoAnalyticsSummary(
         views=views,
 
-        completed_sessions=completed_sessions,
+        completed_sessions=(
+            completed_sessions
+        ),
+
         completion_rate=round(
             completion_rate,
             4,
@@ -383,42 +491,110 @@ async def get_video_analytics(
             row["active_sessions"]
         ),
 
-        observed_watch_seconds=int(
-            row["observed_watch_seconds"]
+        watch_time_seconds=round(
+            total_watch_ms / 1000,
+            2,
         ),
 
         buffer_events=int(
             row["buffer_events"]
         ),
 
-        total_buffer_ms=int(
-            row["total_buffer_ms"]
+        total_buffer_ms=(
+            total_buffer_ms
+        ),
+
+        rebuffer_ratio=round(
+            rebuffer_ratio,
+            4,
         ),
 
         p50_buffer_ms=(
-            float(row["p50_buffer_ms"])
-            if row["p50_buffer_ms"]
+            float(
+                row[
+                    "p50_buffer_ms"
+                ]
+            )
+            if row[
+                "p50_buffer_ms"
+            ]
             is not None
             else None
         ),
 
         p95_buffer_ms=(
-            float(row["p95_buffer_ms"])
-            if row["p95_buffer_ms"]
+            float(
+                row[
+                    "p95_buffer_ms"
+                ]
+            )
+            if row[
+                "p95_buffer_ms"
+            ]
             is not None
             else None
+        ),
+
+        p50_startup_ms=(
+            float(
+                row[
+                    "p50_startup_ms"
+                ]
+            )
+            if row[
+                "p50_startup_ms"
+            ]
+            is not None
+            else None
+        ),
+
+        p95_startup_ms=(
+            float(
+                row[
+                    "p95_startup_ms"
+                ]
+            )
+            if row[
+                "p95_startup_ms"
+            ]
+            is not None
+            else None
+        ),
+
+        p99_startup_ms=(
+            float(
+                row[
+                    "p99_startup_ms"
+                ]
+            )
+            if row[
+                "p99_startup_ms"
+            ]
+            is not None
+            else None
+        ),
+
+        seek_events=int(
+            row["seek_events"]
         ),
 
         playback_errors=int(
             row["playback_errors"]
         ),
 
-        events_by_type=events_by_type,
+        events_by_type=(
+            events_by_type
+        ),
 
         quality_distribution=(
             quality_distribution
         ),
     )
+
+
+# ---------------------------------------------------------
+# Timeline analytics
+# ---------------------------------------------------------
 
 
 async def get_video_timeline(
@@ -442,8 +618,10 @@ async def get_video_timeline(
         "day": "day",
     }
 
-    bucket_sql = allowed_buckets.get(
-        bucket
+    bucket_sql = (
+        allowed_buckets.get(
+            bucket
+        )
     )
 
     if bucket_sql is None:
@@ -451,8 +629,11 @@ async def get_video_timeline(
             "bucket must be minute, hour, or day"
         )
 
-    # bucket_sql comes strictly from the whitelist above,
-    # never directly from user input.
+    #
+    # bucket_sql comes strictly from the
+    # whitelist above, not directly from
+    # arbitrary user input.
+    #
     query = text(
         f"""
         SELECT
@@ -496,17 +677,32 @@ async def get_video_timeline(
 
     return [
         AnalyticsTimelinePoint(
-            bucket=row["bucket"],
-            events=row["events"],
-            playback_starts=row[
-                "playback_starts"
+            bucket=row[
+                "bucket"
             ],
-            buffering_events=row[
-                "buffering_events"
-            ],
-            playback_errors=row[
-                "playback_errors"
-            ],
+
+            events=int(
+                row["events"]
+            ),
+
+            playback_starts=int(
+                row[
+                    "playback_starts"
+                ]
+            ),
+
+            buffering_events=int(
+                row[
+                    "buffering_events"
+                ]
+            ),
+
+            playback_errors=int(
+                row[
+                    "playback_errors"
+                ]
+            ),
         )
-        for row in result.mappings()
+        for row
+        in result.mappings()
     ]

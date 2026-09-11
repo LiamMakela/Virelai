@@ -47,6 +47,7 @@ app.add_middleware(
 
 
 PlaybackEventType = Literal[
+    "play_requested",
     "playback_started",
     "pause",
     "resume",
@@ -54,6 +55,7 @@ PlaybackEventType = Literal[
     "buffer_ended",
     "quality_changed",
     "heartbeat",
+    "seek",
     "playback_ended",
     "playback_error",
 ]
@@ -88,6 +90,26 @@ class PlaybackEvent(BaseModel):
     )
 
     quality_height: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    startup_time_ms: int | None = Field(
+    default=None,
+    ge=0,
+    )
+
+    watch_delta_ms: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    seek_from_ms: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    seek_to_ms: int | None = Field(
         default=None,
         ge=0,
     )

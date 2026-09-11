@@ -71,6 +71,12 @@ class PlaybackEvent(BaseModel):
     error_code: str | None = None
     metadata: dict | None = None
 
+    startup_time_ms: int | None = None
+    watch_delta_ms: int | None = None
+
+    seek_from_ms: int | None = None
+    seek_to_ms: int | None = None
+
 
 def event_stream_fields(
     event: PlaybackEvent,
@@ -116,6 +122,26 @@ def event_stream_fields(
     if event.metadata is not None:
         fields["metadata"] = json.dumps(
             event.metadata
+        )
+
+    if event.startup_time_ms is not None:
+        fields["startup_time_ms"] = str(
+            event.startup_time_ms
+        )
+
+    if event.watch_delta_ms is not None:
+        fields["watch_delta_ms"] = str(
+            event.watch_delta_ms
+        )
+
+    if event.seek_from_ms is not None:
+        fields["seek_from_ms"] = str(
+            event.seek_from_ms
+        )
+
+    if event.seek_to_ms is not None:
+        fields["seek_to_ms"] = str(
+            event.seek_to_ms
         )
 
     return fields
