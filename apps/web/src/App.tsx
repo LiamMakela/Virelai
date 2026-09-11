@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { VideoPlayer } from "./components/VideoPlayer";
+import { OperationsDashboard } from "./components/OperationsDashboard";
 
 type PlaybackResponse = {
   video_id: string;
@@ -131,6 +132,7 @@ function App() {
           </p>
         </>
       )}
+      <OperationsDashboard />
     </main>
   );
 }
