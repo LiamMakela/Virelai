@@ -6,6 +6,13 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+import time
+
+from prometheus_client import (
+    Counter,
+    Histogram,
+    start_http_server,
+)
 
 import boto3
 import psycopg
@@ -71,6 +78,31 @@ RENDITION_LADDER = [
         "audio_bitrate_kbps": 128,
     },
 ]
+
+TRANSCODE_JOBS = Counter(
+    "virelai_transcode_jobs_total",
+    "Video transcoding jobs",
+    [
+        "result",
+    ],
+)
+
+
+TRANSCODE_DURATION = Histogram(
+    "virelai_transcode_duration_seconds",
+    "Total video transcode job duration",
+    buckets=(
+        1,
+        5,
+        10,
+        30,
+        60,
+        120,
+        300,
+        600,
+        1200,
+    ),
+)
 
 
 s3 = boto3.client(
@@ -744,6 +776,8 @@ def mark_failed(
 def process_video(
     event: VideoUploadedEvent,
 ) -> None:
+    started = time.perf_counter()
+
     video_id = event.video_id
 
     logger.info(
@@ -856,6 +890,7 @@ def process_video(
                 thumbnail_path,
             )
 
+
         save_media_metadata(
             video_id,
             metadata,
@@ -867,12 +902,27 @@ def process_video(
             video_id,
         )
 
+        TRANSCODE_JOBS.labels(
+            result="success"
+        ).inc()
+
     except Exception:
         mark_failed(
             video_id
         )
 
+        TRANSCODE_JOBS.labels(
+            result="failure"
+        ).inc()
+
+
         raise
+
+    finally:
+        TRANSCODE_DURATION.observe(
+            time.perf_counter()
+            - started
+        )
 
 def select_renditions(
     source_height: int,
@@ -899,6 +949,15 @@ def select_renditions(
 
 
 def main() -> None:
+
+    start_http_server(
+        9102
+    )
+
+    logger.info(
+        "Prometheus metrics listening on :9102"
+    )
+    
     consumer = Consumer(
         {
             "bootstrap.servers": (

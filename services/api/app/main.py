@@ -2,6 +2,16 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    generate_latest,
+)
+
+from app.core.metrics import (
+    observe_http_request,
+)
 
 from app.db.session import get_db
 from app.routers.videos import router as videos_router
@@ -23,6 +33,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.middleware("http")(
+    observe_http_request
 )
 
 app.include_router(videos_router)
@@ -49,3 +63,15 @@ async def ready(
         "status": "ready",
         "database": "ok",
     }
+
+@app.get(
+    "/metrics",
+    include_in_schema=False,
+)
+async def metrics():
+    return Response(
+        content=generate_latest(),
+        media_type=(
+            CONTENT_TYPE_LATEST
+        ),
+    )

@@ -264,8 +264,55 @@ services:
 
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v3.14.0
+
+    container_name: virelai-prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    depends_on:
+      - api
+      - ingest
+      - transcoder
+
+    restart: unless-stopped
+
+
+  grafana:
+    image: grafana/grafana:13.2.1
+
+    container_name: virelai-grafana
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: virelai-dev-password
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+
+    depends_on:
+      - prometheus
+
+    restart: unless-stopped
+
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  prometheus_data:
+  grafana_data:

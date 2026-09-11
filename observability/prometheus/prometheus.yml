@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "virelai-api"
+    static_configs:
+      - targets:
+          - "api:8000"
+
+  - job_name: "virelai-ingest"
+    static_configs:
+      - targets:
+          - "ingest:8001"
+
+  - job_name: "virelai-transcoder"
+    static_configs:
+      - targets:
+          - "transcoder:9102"
