@@ -17,9 +17,22 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
+#
+# Alembic stores configuration through Python's
+# ConfigParser, where "%" has interpolation meaning.
+#
+# SQLAlchemy URL-encodes special characters in passwords
+# as %XX, so escape percent signs before putting the URL
+# into Alembic's config.
+#
+database_url = (
+    settings.effective_database_url
+    .replace("%", "%%")
+)
+
 config.set_main_option(
     "sqlalchemy.url",
-    settings.effective_database_url,
+    database_url,
 )
 
 
