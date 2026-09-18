@@ -63,3 +63,17 @@ variable "valkey_engine_version" {
   type        = string
   default     = "8.2"
 }
+
+
+variable "enable_api_service" {
+  description = "Run the Virelai API on ECS Fargate."
+  type        = bool
+  default     = false
+}
+
+
+variable "api_image_tag" {
+  description = "Immutable ECR image tag used by the API ECS task."
+  type        = string
+  default     = ""
+}

@@ -6,25 +6,41 @@ from app.core.config import settings
 
 
 def _client(endpoint_url: str):
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint_url,
-        aws_access_key_id=settings.s3_access_key,
-        aws_secret_access_key=settings.s3_secret_key,
-        region_name=settings.s3_region,
-        config=Config(
+    kwargs = {
+        "service_name": "s3",
+        "endpoint_url": endpoint_url,
+        "region_name": settings.s3_region,
+        "config": Config(
             signature_version="s3v4",
             s3={
                 "addressing_style": "path",
             },
         ),
-    )
+    }
+
+    #
+    # Local development uses explicit MinIO credentials.
+    #
+    # AWS leaves credentials unspecified so boto3 obtains
+    # temporary credentials from the ECS task role.
+    #
+    if not settings.s3_use_default_credentials:
+        kwargs["aws_access_key_id"] = (
+            settings.s3_access_key
+        )
+
+        kwargs["aws_secret_access_key"] = (
+            settings.s3_secret_key
+        )
+
+    return boto3.client(**kwargs)
 
 
-# Used by FastAPI itself to communicate with MinIO.
-_internal_client = _client(settings.s3_endpoint_url)
+_internal_client = _client(
+    settings.s3_endpoint_url
+)
 
-# Used ONLY to generate URLs that the client/browser can reach.
+
 _public_signing_client = _client(
     settings.s3_public_endpoint_url
 )
@@ -98,6 +114,7 @@ def get_object_size(
 
     return response["ContentLength"]
 
+
 def generate_media_download_url(
     object_key: str,
     expires_in: int = 3600,
@@ -105,12 +122,13 @@ def generate_media_download_url(
     return _public_signing_client.generate_presigned_url(
         ClientMethod="get_object",
         Params={
-            "Bucket": "virelai-media",
+            "Bucket": settings.s3_bucket_media,
             "Key": object_key,
         },
         ExpiresIn=expires_in,
         HttpMethod="GET",
     )
+
 
 def media_public_url(
     object_key: str,

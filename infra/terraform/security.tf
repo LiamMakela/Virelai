@@ -104,3 +104,52 @@ resource "aws_vpc_security_group_ingress_rule" "redis_from_ecs" {
     "Valkey from Virelai ECS"
   )
 }
+resource "aws_security_group" "alb" {
+  name = "${local.name_prefix}-alb"
+
+  description = "Security group for Virelai public ALB"
+
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${local.name_prefix}-alb"
+  }
+}
+
+
+resource "aws_vpc_security_group_ingress_rule" "alb_http" {
+  security_group_id = aws_security_group.alb.id
+
+  cidr_ipv4 = "0.0.0.0/0"
+
+  from_port = 80
+  to_port   = 80
+
+  ip_protocol = "tcp"
+
+  description = "Public HTTP"
+}
+
+
+resource "aws_vpc_security_group_egress_rule" "alb_all" {
+  security_group_id = aws_security_group.alb.id
+
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = "-1"
+
+  description = "ALB outbound"
+}
+
+
+resource "aws_vpc_security_group_ingress_rule" "ecs_api_from_alb" {
+  security_group_id = aws_security_group.ecs.id
+
+  referenced_security_group_id = aws_security_group.alb.id
+
+  from_port = 8000
+  to_port   = 8000
+
+  ip_protocol = "tcp"
+
+  description = "API traffic from ALB"
+}
