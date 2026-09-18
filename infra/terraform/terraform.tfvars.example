@@ -1,0 +1,6 @@
+aws_region  = "us-east-2"
+environment = "dev"
+
+frontend_origins = [
+  "http://localhost:5173",
+]
