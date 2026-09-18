@@ -5,6 +5,10 @@ import time
 import uuid
 from datetime import datetime
 
+from app.connections import (
+    redis_connection,
+)
+
 from confluent_kafka import (
     Consumer,
     TopicPartition,
@@ -13,7 +17,6 @@ from pydantic import (
     BaseModel,
     ValidationError,
 )
-from redis import Redis
 
 
 logging.basicConfig(
@@ -40,16 +43,8 @@ KAFKA_TOPIC = os.environ.get(
     "playback.events.v1",
 )
 
-REDIS_URL = os.environ.get(
-    "REDIS_URL",
-    "redis://redis:6379/0",
-)
 
-
-redis_client = Redis.from_url(
-    REDIS_URL,
-    decode_responses=True,
-)
+redis_client = redis_connection()
 
 
 ACTIVE_SESSION_TTL_SECONDS = 30

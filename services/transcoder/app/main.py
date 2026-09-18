@@ -20,6 +20,11 @@ import psycopg
 from confluent_kafka import Consumer
 from pydantic import BaseModel, ValidationError
 
+from app.connections import (
+    database_connection,
+    s3_client,
+)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,8 +39,6 @@ logging.basicConfig(
 logger = logging.getLogger("virelai.transcoder")
 
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-
 KAFKA_BOOTSTRAP_SERVERS = os.environ[
     "KAFKA_BOOTSTRAP_SERVERS"
 ]
@@ -46,8 +49,6 @@ KAFKA_TOPIC_VIDEO_UPLOADED = os.environ.get(
 )
 
 S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
-S3_ACCESS_KEY = os.environ["S3_ACCESS_KEY"]
-S3_SECRET_KEY = os.environ["S3_SECRET_KEY"]
 S3_REGION = os.environ.get(
     "S3_REGION",
     "us-east-1",
@@ -105,13 +106,7 @@ TRANSCODE_DURATION = Histogram(
 )
 
 
-s3 = boto3.client(
-    "s3",
-    endpoint_url=S3_ENDPOINT_URL,
-    aws_access_key_id=S3_ACCESS_KEY,
-    aws_secret_access_key=S3_SECRET_KEY,
-    region_name=S3_REGION,
-)
+s3 = s3_client()
 
 
 class SourceObject(BaseModel):
@@ -562,9 +557,7 @@ def save_media_metadata(
         f"videos/{video_id}/hls/master.m3u8"
     )
 
-    with psycopg.connect(
-        DATABASE_URL
-    ) as connection:
+    with database_connection() as connection:
         with connection.cursor() as cursor:
 
             cursor.execute(
@@ -713,9 +706,7 @@ def get_video_status(
 def mark_processing(
     video_id: uuid.UUID,
 ) -> None:
-    with psycopg.connect(
-        DATABASE_URL
-    ) as connection:
+    with database_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """

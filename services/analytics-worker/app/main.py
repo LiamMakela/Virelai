@@ -12,6 +12,10 @@ from confluent_kafka import (
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ValidationError
 
+from app.connections import (
+    database_connection,
+)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,9 +32,7 @@ logger = logging.getLogger(
 )
 
 
-DATABASE_URL = os.environ[
-    "DATABASE_URL"
-]
+
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ[
     "KAFKA_BOOTSTRAP_SERVERS"
@@ -179,9 +181,7 @@ def persist_events(
     # + one transaction
     # for the entire Kafka batch.
     #
-    with psycopg.connect(
-        DATABASE_URL
-    ) as connection:
+    with database_connection() as connection:
 
         with connection.cursor() as cursor:
 
