@@ -42,3 +42,24 @@ variable "frontend_origins" {
     "http://localhost:5173",
   ]
 }
+
+
+variable "enable_managed_data_services" {
+  description = "Create billable RDS PostgreSQL and ElastiCache resources."
+  type        = bool
+  default     = false
+}
+
+
+variable "postgres_engine_version" {
+  description = "RDS PostgreSQL engine version."
+  type        = string
+  default     = "17.11"
+}
+
+
+variable "valkey_engine_version" {
+  description = "ElastiCache Valkey engine version."
+  type        = string
+  default     = "8.2"
+}

@@ -4,3 +4,5 @@ environment = "dev"
 frontend_origins = [
   "http://localhost:5173",
 ]
+
+enable_managed_data_services = false
