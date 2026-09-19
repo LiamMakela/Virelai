@@ -118,6 +118,29 @@ resource "aws_ecs_task_definition" "api" {
         {
           name  = "OTEL_LOGS_EXPORTER"
           value = "none"
+        },
+        {
+          name  = "KAFKA_BOOTSTRAP_SERVERS"
+          value = "kafka.virelai.internal:19092"
+        },
+        {
+          name  = "REDIS_HOST"
+          value = aws_elasticache_replication_group.redis[0].primary_endpoint_address
+        },
+        {
+          name  = "REDIS_PORT"
+          value = tostring(aws_elasticache_replication_group.redis[0].port)
+        },
+        {
+          name  = "REDIS_TLS"
+          value = "true"
+        },
+        {
+          name = "MEDIA_PUBLIC_BASE_URL"
+
+          value = (
+            "https://${aws_cloudfront_distribution.media.domain_name}"
+          )
         }
       ]
 
@@ -128,6 +151,13 @@ resource "aws_ecs_task_definition" "api" {
 
           valueFrom = (
             "${aws_db_instance.postgres[0].master_user_secret[0].secret_arn}:password::"
+          )
+        },
+        {
+          name = "REDIS_PASSWORD"
+
+          valueFrom = (
+            aws_ssm_parameter.redis_auth[0].arn
           )
         }
       ]

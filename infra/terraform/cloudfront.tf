@@ -16,8 +16,8 @@ resource "aws_cloudfront_response_headers_policy" "media_cors" {
 
   cors_config {
     access_control_allow_credentials = false
-    access_control_max_age_sec        = 3600
-    origin_override                   = true
+    access_control_max_age_sec       = 3600
+    origin_override                  = true
 
     access_control_allow_headers {
       items = [
