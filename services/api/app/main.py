@@ -58,11 +58,16 @@ async def health():
 async def ready(
     db: AsyncSession = Depends(get_db),
 ):
-    await db.execute(text("SELECT 1"))
+    await db.execute(
+        text("SELECT 1")
+    )
+
+    await redis_client.ping()
 
     return {
         "status": "ready",
         "database": "ok",
+        "redis": "ok",
     }
 
 @app.get(
@@ -76,19 +81,3 @@ async def metrics():
             CONTENT_TYPE_LATEST
         ),
     )
-
-@app.get("/ready")
-async def ready(
-    db: AsyncSession = Depends(get_db),
-):
-    await db.execute(
-        text("SELECT 1")
-    )
-
-    await redis_client.ping()
-
-    return {
-        "status": "ready",
-        "database": "ok",
-        "redis": "ok",
-    }
