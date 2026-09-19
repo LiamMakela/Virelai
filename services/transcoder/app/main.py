@@ -682,9 +682,7 @@ def save_media_metadata(
 def get_video_status(
     video_id: uuid.UUID,
 ) -> str | None:
-    with psycopg.connect(
-        DATABASE_URL
-    ) as connection:
+    with database_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -725,9 +723,7 @@ def mark_processing(
 def mark_ready(
     video_id: uuid.UUID,
 ) -> None:
-    with psycopg.connect(
-        DATABASE_URL
-    ) as connection:
+    with database_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -746,9 +742,7 @@ def mark_ready(
 def mark_failed(
     video_id: uuid.UUID,
 ) -> None:
-    with psycopg.connect(
-        DATABASE_URL
-    ) as connection:
+    with database_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
