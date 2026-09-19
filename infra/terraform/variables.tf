@@ -77,3 +77,40 @@ variable "api_image_tag" {
   type        = string
   default     = ""
 }
+
+variable "enable_kafka_service" {
+  description = "Run the temporary Kafka broker on ECS Fargate."
+  type        = bool
+  default     = false
+}
+
+variable "enable_worker_services" {
+  description = "Run the Virelai transcoder and analytics workers on ECS Fargate."
+  type        = bool
+  default     = false
+}
+
+
+variable "worker_image_tag" {
+  description = "Immutable ECR image tag shared by the Virelai worker images."
+  type        = string
+  default     = ""
+}
+
+variable "enable_ingest_service" {
+  description = "Run the telemetry ingest service on ECS Fargate."
+  type        = bool
+  default     = false
+}
+
+variable "ingest_image_tag" {
+  description = "Immutable ECR image tag for the ingest service."
+  type        = string
+  default     = ""
+}
+
+variable "enable_public_alb" {
+  description = "Create the public Application Load Balancer for API and ingest traffic."
+  type        = bool
+  default     = false
+}

@@ -120,12 +120,19 @@ output "ecs_cluster_name" {
 
 
 output "api_load_balancer_dns" {
-  value = aws_lb.api.dns_name
+  value = try(
+    aws_lb.api[0].dns_name,
+    null,
+  )
 }
 
 
 output "api_target_group_arn" {
-  value = aws_lb_target_group.api.arn
+  value = try(
+    aws_lb_target_group.api[0].arn,
+    null,
+  )
+
 }
 
 

@@ -153,3 +153,18 @@ resource "aws_vpc_security_group_ingress_rule" "ecs_api_from_alb" {
 
   description = "API traffic from ALB"
 }
+
+resource "aws_vpc_security_group_ingress_rule" "ecs_kafka_internal" {
+  security_group_id = aws_security_group.ecs.id
+
+  referenced_security_group_id = (
+    aws_security_group.ecs.id
+  )
+
+  from_port = 19092
+  to_port   = 19092
+
+  ip_protocol = "tcp"
+
+  description = "Kafka between Virelai ECS tasks"
+}

@@ -116,8 +116,8 @@ data "aws_iam_policy_document" "ecs_execution_secrets" {
 
     resources = [
       aws_db_instance.postgres[0]
-        .master_user_secret[0]
-        .secret_arn,
+      .master_user_secret[0]
+      .secret_arn,
     ]
   }
 }
@@ -136,7 +136,125 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
 
   policy = (
     data.aws_iam_policy_document
-      .ecs_execution_secrets[0]
-      .json
+    .ecs_execution_secrets[0]
+    .json
+  )
+}
+
+# ---------------------------------------------------------
+# Transcoder task role
+# ---------------------------------------------------------
+
+
+resource "aws_iam_role" "transcoder_task" {
+  count = var.enable_worker_services ? 1 : 0
+
+  name = "${local.name_prefix}-transcoder-task"
+
+  assume_role_policy = (
+    data.aws_iam_policy_document
+    .ecs_task_assume_role
+    .json
+  )
+
+  tags = {
+    Name = "${local.name_prefix}-transcoder-task"
+  }
+}
+
+
+data "aws_iam_policy_document" "transcoder_task" {
+  count = var.enable_worker_services ? 1 : 0
+
+  statement {
+    sid = "ReadOriginalVideos"
+
+    actions = [
+      "s3:GetObject",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.originals.arn}/*",
+    ]
+  }
+
+
+  statement {
+    sid = "WriteGeneratedMedia"
+
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:AbortMultipartUpload",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.media.arn}/*",
+    ]
+  }
+
+
+  statement {
+    sid = "BucketMetadata"
+
+    actions = [
+      "s3:ListBucket",
+    ]
+
+    resources = [
+      aws_s3_bucket.originals.arn,
+      aws_s3_bucket.media.arn,
+    ]
+  }
+}
+
+
+resource "aws_iam_role_policy" "transcoder_task" {
+  count = var.enable_worker_services ? 1 : 0
+
+  name = "${local.name_prefix}-transcoder"
+
+  role = aws_iam_role.transcoder_task[0].id
+
+  policy = (
+    data.aws_iam_policy_document
+    .transcoder_task[0]
+    .json
+  )
+}
+
+
+# ---------------------------------------------------------
+# ECS execution role: Valkey password
+# ---------------------------------------------------------
+
+
+data "aws_iam_policy_document" "ecs_execution_ssm" {
+  count = var.enable_worker_services ? 1 : 0
+
+  statement {
+    actions = [
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+    ]
+
+    resources = [
+      aws_ssm_parameter.redis_auth[0].arn,
+    ]
+  }
+}
+
+
+resource "aws_iam_role_policy" "ecs_execution_ssm" {
+  count = var.enable_worker_services ? 1 : 0
+
+  name = "${local.name_prefix}-ecs-ssm"
+
+  role = aws_iam_role.ecs_execution.id
+
+  policy = (
+    data.aws_iam_policy_document
+    .ecs_execution_ssm[0]
+    .json
   )
 }
