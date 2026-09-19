@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from app.core.redis import redis_client
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -75,3 +76,19 @@ async def metrics():
             CONTENT_TYPE_LATEST
         ),
     )
+
+@app.get("/ready")
+async def ready(
+    db: AsyncSession = Depends(get_db),
+):
+    await db.execute(
+        text("SELECT 1")
+    )
+
+    await redis_client.ping()
+
+    return {
+        "status": "ready",
+        "database": "ok",
+        "redis": "ok",
+    }

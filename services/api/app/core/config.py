@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     kafka_topic_video_uploaded: str = "video.uploaded.v1"
 
     redis_url: str = "redis://redis:6379/0"
-
+    redis_host: str | None = None
+    redis_port: int = 6379
+    redis_password: str | None = None
+    redis_tls: bool = False
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
