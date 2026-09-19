@@ -47,10 +47,14 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_password: str | None = None
     redis_tls: bool = False
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
+    )
+
+    media_public_base_url: str = (
+        "http://localhost:9000/virelai-media"
     )
 
     @property

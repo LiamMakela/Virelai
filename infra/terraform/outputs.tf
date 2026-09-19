@@ -137,3 +137,7 @@ output "ecs_execution_role_arn" {
 output "api_task_role_arn" {
   value = aws_iam_role.api_task.arn
 }
+
+output "media_cloudfront_domain" {
+  value = aws_cloudfront_distribution.media.domain_name
+}

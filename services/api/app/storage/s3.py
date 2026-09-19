@@ -134,7 +134,6 @@ def media_public_url(
     object_key: str,
 ) -> str:
     return (
-        f"{settings.s3_public_endpoint_url}/"
-        f"{settings.s3_bucket_media}/"
-        f"{object_key}"
+        f"{settings.media_public_base_url.rstrip('/')}/"
+        f"{object_key.lstrip('/')}"
     )
