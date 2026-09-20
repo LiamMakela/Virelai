@@ -1,0 +1,12 @@
+{
+    "containerOverrides":  [
+                               {
+                                   "command":  [
+                                                   "python",
+                                                   "-c",
+                                                   "import uuid\nfrom app.events.kafka import publish_video_uploaded\n\npublish_video_uploaded(\n    video_id=uuid.UUID(\"ef2e66ce-d1ea-41c3-8d55-7727edd84070\"),\n    bucket=\"virelai-dev-486678742469-us-east-2-originals\",\n    object_key=\"users/11111111-1111-1111-1111-111111111111/videos/ef2e66ce-d1ea-41c3-8d55-7727edd84070/source.mp4\",\n)\n\nprint(\"video.uploaded.v1 republished\")"
+                                               ],
+                                   "name":  "api"
+                               }
+                           ]
+}

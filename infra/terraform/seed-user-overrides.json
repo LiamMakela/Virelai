@@ -1,0 +1,12 @@
+{
+    "containerOverrides":  [
+                               {
+                                   "command":  [
+                                                   "python",
+                                                   "-c",
+                                                   "import os\nimport psycopg\n\nconn = psycopg.connect(\n    host=os.environ[\"DB_HOST\"],\n    port=os.environ.get(\"DB_PORT\", \"5432\"),\n    dbname=os.environ[\"DB_NAME\"],\n    user=os.environ[\"DB_USER\"],\n    password=os.environ[\"DB_PASSWORD\"],\n)\n\nwith conn.cursor() as cur:\n    cur.execute(\n        \"\"\"\n        INSERT INTO users (\n            id,\n            email,\n            password_hash,\n            role\n        )\n        VALUES (%s, %s, %s, %s)\n        ON CONFLICT (id) DO NOTHING\n        \"\"\",\n        (\n            \"11111111-1111-1111-1111-111111111111\",\n            \"dev@virelai.local\",\n            \"dev-only-placeholder\",\n            \"creator\",\n        ),\n    )\n\nconn.commit()\nconn.close()\n\nprint(\"AWS dev user seeded\")"
+                                               ],
+                                   "name":  "api"
+                               }
+                           ]
+}

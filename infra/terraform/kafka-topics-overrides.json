@@ -1,0 +1,12 @@
+{
+  "containerOverrides": [
+    {
+      "name": "kafka",
+      "command": [
+        "bash",
+        "-lc",
+        "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.virelai.internal:19092 --create --if-not-exists --topic video.uploaded.v1 --partitions 1 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.virelai.internal:19092 --create --if-not-exists --topic playback.events.v1 --partitions 6 --replication-factor 1 && /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.virelai.internal:19092 --list"
+      ]
+    }
+  ]
+}
